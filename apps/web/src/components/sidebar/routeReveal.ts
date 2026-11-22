@@ -1,3 +1,4 @@
+import type { UiProjectState } from "../../uiStateStore";
 import { useRef } from "react";
 
 import { observeResize } from "~/lib/observeResize";
@@ -79,6 +80,7 @@ export function resolveSidebarRouteReveal<T extends RevealableThread>(input: {
   readonly routeKey: string | null;
   readonly routeKeyInPlace: boolean;
   readonly isSearching: boolean;
+  readonly scopeMode: UiProjectState["sidebarProjectScopeMode"];
   readonly scopedProjectKeys: ReadonlySet<string> | null;
   readonly delegatedUnderParent: ReadonlySet<string>;
   readonly findThread: (key: string) => T | undefined;
@@ -89,6 +91,7 @@ export function resolveSidebarRouteReveal<T extends RevealableThread>(input: {
   // Search results replace the thread list; the reveal waits for it to return.
   const thread = pendingKey === null || isSearching ? undefined : findThread(pendingKey);
   const widensScope =
+    input.scopeMode === "show" &&
     thread !== undefined &&
     scopedProjectKeys !== null &&
     filterSidebarV2VisibleThreads([thread], scopedProjectKeys, delegatedUnderParent).length === 0 &&

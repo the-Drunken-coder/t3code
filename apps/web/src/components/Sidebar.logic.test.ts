@@ -1570,18 +1570,22 @@ describe("resolveSidebarRouteReveal", () => {
   const hiddenKey = "environment-test:thread-test";
   const findThread = (key: string) => (key === hiddenKey ? hidden : undefined);
 
-  it("widens the scope for a newly opened thread the scope hides", () => {
+  it.each([
+    ["show", true],
+    ["hide", false],
+  ] as const)("opening a filtered thread in %s mode widens scope: %s", (scopeMode, widensScope) => {
     expect(
       resolveSidebarRouteReveal({
         reveal: { observedKey: "environment-test:other", pendingKey: null },
         routeKey: hiddenKey,
         routeKeyInPlace: false,
         isSearching: false,
+        scopeMode,
         scopedProjectKeys,
         delegatedUnderParent: new Set(),
         findThread,
       }),
-    ).toEqual({ pendingKey: hiddenKey, widensScope: true });
+    ).toEqual({ pendingKey: hiddenKey, widensScope });
   });
 
   it("never widens for a thread whose reveal already completed", () => {
@@ -1592,6 +1596,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         routeKeyInPlace: false,
         isSearching: false,
+        scopeMode: "show",
         scopedProjectKeys,
         delegatedUnderParent: new Set(),
         findThread,
@@ -1609,6 +1614,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey,
         routeKeyInPlace: false,
         isSearching: false,
+        scopeMode: "show",
         scopedProjectKeys,
         delegatedUnderParent: new Set(),
         findThread,
@@ -1624,6 +1630,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         routeKeyInPlace: false,
         isSearching: true,
+        scopeMode: "show",
         scopedProjectKeys,
         delegatedUnderParent: new Set(),
         findThread,
