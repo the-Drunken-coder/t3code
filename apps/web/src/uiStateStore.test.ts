@@ -19,6 +19,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    sidebarProjectScopeMode: "show",
     sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -125,6 +126,7 @@ describe("parsePersistedState", () => {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
+      sidebarProjectScopeMode: "show",
       sidebarProjectScopeKeys: [],
       pullRequestMergeMethod: "merge",
       threadChangedFilesExpandedById: {
@@ -261,6 +263,20 @@ describe("uiStateStore persistence", () => {
     ) as PersistedUiState;
 
     expect(parsePersistedState(persisted).sidebarProjectScopeKeys).toEqual(keys);
+  });
+
+  it("restores hidden projects without exposing them as an inclusion filter to older clients", () => {
+    const state = makeUiState({
+      sidebarProjectScopeMode: "hide",
+      sidebarProjectScopeKeys: ["a", "b"],
+    });
+    persistState(state);
+    const persisted = JSON.parse(
+      localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
+    ) as PersistedUiState;
+    expect(persisted.sidebarProjectScopeKeys).toEqual([]);
+    expect(persisted.sidebarProjectScopeKey).toBeNull();
+    expect(parsePersistedState(persisted)).toEqual(state);
   });
 
   it("keeps a single-project scope readable by older clients", () => {

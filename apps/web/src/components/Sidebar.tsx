@@ -73,6 +73,8 @@ import {
   ChevronDownIcon,
   FolderIcon,
   ListFilterIcon,
+  MinusIcon,
+  EyeOffIcon,
   PlusIcon,
   SettingsIcon,
 } from "lucide-react";
@@ -855,13 +857,14 @@ function useSidebarLookups() {
   };
 }
 
-function ProjectScopeRowIcon(props: { isSelected: boolean; children: ReactNode }) {
+function ProjectScopeRowIcon(props: { isSelected: boolean; hidden: boolean; children: ReactNode }) {
+  const Indicator = props.hidden ? MinusIcon : CheckIcon;
   return (
     <span className="relative flex shrink-0">
       {props.children}
       {props.isSelected ? (
         <span className="pointer-events-none absolute -right-1 -bottom-1 grid size-3 place-items-center rounded-full bg-primary ring-2 ring-popover">
-          <CheckIcon className="size-2 text-primary-foreground" strokeWidth={4} aria-hidden />
+          <Indicator className="size-2 text-primary-foreground" strokeWidth={4} aria-hidden />
         </span>
       ) : null}
     </span>
@@ -1011,6 +1014,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   );
   const environmentMachineById = useEnvironmentMachines();
   const projectGroupsRef = useRef(projectGroups);
+  const scopeMode = useUiStateStore((store) => store.sidebarProjectScopeMode);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
@@ -1079,9 +1083,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   // A selection made under one scope can hold threads the next scope hides.
   // The viewport outlives the scope and does not anchor, so a new list starts at the top.
-  const setProjectScopeKeys = (keys: readonly string[]) => {
+  const setProjectScopeKeys = (keys: readonly string[], mode: typeof scopeMode = "show") => {
     clearSelection();
-    setPersistedProjectScopeKeys(keys);
+    setPersistedProjectScopeKeys(keys, mode);
     scrollSidebarToTop(sidebarContentRef.current);
   };
   // A scope whose project is gone reads as all projects once every snapshot has
@@ -1100,11 +1104,22 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const chosenProjectGroups = scopeGroups.filter((project) =>
     chosenProjectScopeKeys.includes(project.projectKey),
   );
+  // Keep pinned folders first and archived folders last under either filter.
+  const orderedProjectGroups = [
+    ...scopeGroups,
+    ...projectGroups.filter((project) => project.archived),
+  ];
+  const visibleProjectGroups =
+    scopeMode === "hide"
+      ? orderedProjectGroups.filter(
+          (project) => !chosenProjectScopeKeys.includes(project.projectKey),
+        )
+      : chosenProjectGroups;
   const chosenScopeProjectKeys =
     chosenProjectGroups.length === 0
       ? null
       : new Set(
-          chosenProjectGroups.flatMap((project) =>
+          visibleProjectGroups.flatMap((project) =>
             project.memberProjectRefs.map(
               (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
             ),
@@ -1143,13 +1158,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
-  const toggleProjectScopeKey = (key: string) =>
+  const projectScopeKey =
+    projectScopeKeys.length === 0 ? null : [scopeMode, ...projectScopeKeys].join("\n");
+  const toggleProjectScopeKey = (key: string, mode: typeof scopeMode = "show") => {
+    const keys = scopeMode === mode ? projectScopeKeys : [];
     setProjectScopeKeys(
-      projectScopeKeys.includes(key)
-        ? projectScopeKeys.filter((candidate) => candidate !== key)
-        : [...projectScopeKeys, key],
+      keys.includes(key) ? keys.filter((candidate) => candidate !== key) : [...keys, key],
+      mode,
     );
+  };
   // The widened scope outlives the reveal, so it is written back to the persisted
   // scope. Route changes arrive from history, links and the palette, and only this
   // component holds the project groups that decide a widening, so no single
@@ -1182,7 +1199,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectScopeMenuState.open,
   );
   const selectedProjectScopeItem =
-    projectScopeKeys.length > 1
+    scopeMode === "hide" || projectScopeKeys.length > 1
       ? null
       : (projectScopeItems.find((item) => item.value === (projectScopeKeys[0] ?? "all")) ??
         projectScopeItems[0]!);
@@ -1193,10 +1210,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       projectScopeFilter.contains(item, query, (candidate) => candidate.label),
   });
   const scopedProjectGroups = revealWidensScope ? [] : chosenProjectGroups;
-  const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
+  const hidingProjects = scopeMode === "hide" && scopedProjectGroups.length > 0;
+  const scopedProjectRefs = visibleProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(
-    connectedEnvironmentIds,
+    scopedProjectKeys?.size === 0 ? [] : connectedEnvironmentIds,
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1356,12 +1374,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     routeRowThreadKey,
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
-        ? // An archived project keeps a folder for its active threads, below the rest.
-          [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
-        : scopedProjectGroups
+        ? orderedProjectGroups
+        : visibleProjectGroups
       : null,
     keepEmptyFolders: (group) =>
-      scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
+      (scopeMode === "show" && scopedProjectGroups.length > 0) || (group.pinned && !group.archived),
   });
 
   // Ranked across environments as the palette ranks them, so one
@@ -2681,7 +2698,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 threadProjectGroup && !threadProjectGroup.archived
                   ? {
                       label: threadProjectGroup.displayName,
-                      isActive: projectScopeKeys.includes(threadProjectGroup.projectKey),
+                      isActive:
+                        scopeMode === "show" &&
+                        projectScopeKeys.includes(threadProjectGroup.projectKey),
                     }
                   : null,
               isPinned,
@@ -2728,7 +2747,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "filter-by-project":
             if (threadProjectGroup) {
               setProjectScopeKeys(
-                projectScopeKeys.includes(threadProjectGroup.projectKey)
+                scopeMode === "show" && projectScopeKeys.includes(threadProjectGroup.projectKey)
                   ? []
                   : [threadProjectGroup.projectKey],
               );
@@ -2991,7 +3010,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const scopedProjectRef = resolveScopedNewThreadProjectRef({
       shiftKey: event?.shiftKey ?? false,
       // The folder sidebar's header button always opens the picker.
-      scopedProjectGroups: boringSidebarEnabled ? [] : scopedProjectGroups,
+      scopedProjectGroups: boringSidebarEnabled || hidingProjects ? [] : scopedProjectGroups,
       viewed: newThreadContext.activeThread ?? newThreadContext.activeDraftThread,
     });
     if (scopedProjectRef) {
@@ -3079,18 +3098,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     render={
                       <SidebarHeaderIconButton
                         label={
-                          scopedProjectGroups.length > 0
-                            ? gt("Filter threads by project: {projects}", {
+                          hidingProjects
+                            ? gt("Hidden projects: {projects}", {
                                 projects: scopedProjectGroups
                                   .map((project) => project.displayName)
                                   .join(", "),
                               })
-                            : gt("Filter threads by project")
+                            : scopedProjectGroups.length > 0
+                              ? gt("Filter threads by project: {projects}", {
+                                  projects: scopedProjectGroups
+                                    .map((project) => project.displayName)
+                                    .join(", "),
+                                })
+                              : gt("Filter threads by project")
                         }
                       />
                     }
                   >
-                    {scopedProjectGroups.length > 1 ? (
+                    {hidingProjects ? (
+                      <EyeOffIcon className="size-4" />
+                    ) : scopedProjectGroups.length > 1 ? (
                       <span className="flex shrink-0">
                         {scopedProjectGroups.slice(0, 2).map((project, index) => (
                           <span
@@ -3179,16 +3206,26 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         return (
                           <ComboboxItem
                             key={item.value}
+                            title={
+                              project
+                                ? isSelected && hidingProjects
+                                  ? gt("Right-click to unhide project")
+                                  : gt("Right-click to hide project")
+                                : undefined
+                            }
                             hideIndicator
                             value={item}
                             aria-selected={isSelected}
                             // The icon badge marks selection; Base UI's single value would shade one row.
                             data-selected={undefined}
                             onContextMenu={(event) => {
-                              if (project) handleProjectSettings(event, project);
+                              if (!project) return;
+                              event.preventDefault();
+                              event.stopPropagation();
+                              toggleProjectScopeKey(project.projectKey, "hide");
                             }}
                           >
-                            <ProjectScopeRowIcon isSelected={isSelected}>
+                            <ProjectScopeRowIcon isSelected={isSelected} hidden={hidingProjects}>
                               {project ? (
                                 <ProjectFavicon project={project} className="size-4 shrink-0" />
                               ) : (
@@ -3386,17 +3423,19 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
               ) : scopedProjectGroups.length > 0 ? (
                 <>
                   <span>
-                    {settledCount > 0
-                      ? scopedProjectGroups.length > 1
-                        ? gt("No active threads in these projects")
-                        : gt("No active threads in {project}", {
-                            project: scopedProjectGroups[0]!.displayName,
-                          })
-                      : scopedProjectGroups.length > 1
-                        ? gt("No threads in these projects yet")
-                        : gt("No threads in {project} yet", {
-                            project: scopedProjectGroups[0]!.displayName,
-                          })}
+                    {hidingProjects
+                      ? gt("No visible threads")
+                      : settledCount > 0
+                        ? scopedProjectGroups.length > 1
+                          ? gt("No active threads in these projects")
+                          : gt("No active threads in {project}", {
+                              project: scopedProjectGroups[0]!.displayName,
+                            })
+                        : scopedProjectGroups.length > 1
+                          ? gt("No threads in these projects yet")
+                          : gt("No threads in {project} yet", {
+                              project: scopedProjectGroups[0]!.displayName,
+                            })}
                   </span>
                   <button
                     type="button"
